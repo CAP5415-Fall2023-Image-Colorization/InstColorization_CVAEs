@@ -539,6 +539,10 @@ class FusionGenerator(nn.Module):
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
         conv3_3 = self.weight_layer3(instance_feature['conv3_3'], conv3_3, box_info_list[2])
 
+        #Sindhu - calculating z_mean and z_variance
+        self.z_mean = nn.Linear(256, self.latent_dim)
+        self.z_log_var = nn.Linear(256, self.latent_dim)
+        
         # Sindhu - Mapping to a latent space
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)
@@ -667,6 +671,9 @@ class InstanceGenerator(nn.Module):
         self.input_nc = input_nc
         self.output_nc = output_nc
         self.classification = classification
+        self.latent_dim = 2
+        self.beta = 10
+        
         use_bias = True
 
         # Conv1
@@ -850,6 +857,10 @@ class InstanceGenerator(nn.Module):
         conv2_2 = self.model2(conv1_2[:,:,::2,::2])
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
 
+        #Sindhu - calculating z_mean and z_variance
+        self.z_mean = nn.Linear(256, self.latent_dim)
+        self.z_log_var = nn.Linear(256, self.latent_dim)
+        
         # Sindhu - Mapping to a latent space
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)  
@@ -884,8 +895,8 @@ class InstanceGenerator(nn.Module):
 
         # Sindhu - KL Divergence term
         kl_div = -0.5 * torch.sum(1 + z_log_var - z_mu.pow(2) - z_log_var.exp())
-        beta = 10  # Set your desired beta value here
-        kl_div *= beta
+        # Set your desired beta value here
+        kl_div *= self.beta
 
         feature_map = {
             'conv1_2': conv1_2,
