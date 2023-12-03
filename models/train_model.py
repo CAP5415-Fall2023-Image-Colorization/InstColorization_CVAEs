@@ -27,6 +27,11 @@ class TrainModel(BaseModel):
         BaseModel.initialize(self, opt)
         self.loss_names = ['G', 'L1']
         # load/define networks
+        self.kl_div = 0
+         if not hasattr(opt, 'lambda_kl'):
+        opt.lambda_kl = 1.0  # or whatever default value you choose
+
+        self.opt = opt
         num_in = opt.input_nc + opt.output_nc + 1
         self.optimizers = []
         if opt.stage == 'full' or opt.stage == 'instance':
@@ -109,10 +114,24 @@ class TrainModel(BaseModel):
     def forward(self):
         if self.opt.stage == 'full' or self.opt.stage == 'instance':
             (_, self.fake_B_reg) = self.netG(self.real_A, self.hint_B, self.mask_B)
+            # Call forward on netG to get the output and feature map
+            self.fake_B_reg, feature_map = self.netG(self.real_A, self.hint_B, self.mask_B)
+            # Save the kl_div term so it can be used in loss calculation
+            self.kl_div = feature_map['kl_div']
+
         elif self.opt.stage == 'fusion':
-            (_, self.comp_B_reg) = self.netGComp(self.full_real_A, self.full_hint_B, self.full_mask_B)
-            (_, feature_map) = self.netG(self.real_A, self.hint_B, self.mask_B)
+            # In TrainModel.forward
+            elif self.opt.stage == 'fusion':
+            # Call forward on netGComp and netGF to get their respective outputs
+            comp_output = self.netGComp(self.full_real_A, self.full_hint_B, self.full_mask_B)
+            self.comp_B_reg = comp_output['out_reg']
+                
+            # Assuming netG returns a feature map similar to InstanceGenerator
+            self.fake_B_reg, feature_map = self.netG(self.real_A, self.hint_B, self.mask_B)
             self.fake_B_reg = self.netGF(self.full_real_A, self.full_hint_B, self.full_mask_B, feature_map, self.box_info_list)
+                
+            # Save the kl_div term so it can be used in loss calculation
+            self.kl_div = feature_map['kl_div']
         else:
             print('Error! Wrong stage selection!')
             exit()
@@ -120,21 +139,30 @@ class TrainModel(BaseModel):
     def optimize_parameters(self):
         self.forward()
         self.optimizer_G.zero_grad()
+        
+        # Define beta for KL divergence scaling
+        beta = self.opt.beta  # Make sure this is defined in your options
+        
         if self.opt.stage == 'full' or self.opt.stage == 'instance':
-            self.loss_L1 = torch.mean(self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
-                                                        self.real_B.type(torch.cuda.FloatTensor)))
-            self.loss_G = 10 * torch.mean(self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
-                                                        self.real_B.type(torch.cuda.FloatTensor)))
+            self.loss_L1 = self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
+                                            self.real_B.type(torch.cuda.FloatTensor))
+            # Assuming kl_div is calculated and returned in the forward pass for these stages
+            self.loss_KL = self.kl_div * beta
+            self.loss_G = self.loss_L1 + self.loss_KL
         elif self.opt.stage == 'fusion':
-            self.loss_L1 = torch.mean(self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
-                                                        self.full_real_B.type(torch.cuda.FloatTensor)))
-            self.loss_G = 10 * torch.mean(self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
-                                                        self.full_real_B.type(torch.cuda.FloatTensor)))
+            self.loss_L1 = self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
+                                            self.full_real_B.type(torch.cuda.FloatTensor))
+            # Assuming kl_div is part of the feature_map returned in the forward pass
+            self.loss_KL = feature_map['kl_div'] * beta
+            sself.loss_G = self.loss_L1 + self.opt.lambda_kl * self.kl_div
         else:
             print('Error! Wrong stage selection!')
             exit()
+        
+        # Total loss
         self.loss_G.backward()
-        self.optimizer_G.step()
+        self.optimizer_G.step())
+
 
     def get_current_visuals(self):
         from collections import OrderedDict
@@ -168,11 +196,13 @@ class TrainModel(BaseModel):
     def get_current_losses(self):
         self.error_cnt += 1
         errors_ret = OrderedDict()
-        for name in self.loss_names:
+        for name in self.loss_names + ['KL']:
             if isinstance(name, str):
-                # float(...) works for both scalar tensor and float number
-                self.avg_losses[name] = float(getattr(self, 'loss_' + name)) + self.avg_loss_alpha * self.avg_losses[name]
-                errors_ret[name] = (1 - self.avg_loss_alpha) / (1 - self.avg_loss_alpha**self.error_cnt) * self.avg_losses[name]
+                avg_name = 'avg_losses_' + name
+                loss_name = 'loss_' + name
+                if hasattr(self, loss_name):
+                    self.avg_losses[avg_name] = float(getattr(self, loss_name)) + self.avg_loss_alpha * self.avg_losses[avg_name]
+                    errors_ret[name] = (1 - self.avg_loss_alpha) / (1 - self.avg_loss_alpha**self.error_cnt) * self.avg_losses[avg_name]
         return errors_ret
 
     def save_fusion_epoch(self, epoch):

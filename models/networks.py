@@ -96,6 +96,11 @@ class HuberLoss(nn.Module):
         loss = eucl*mask/self.delta + (mann-.5*self.delta)*(1-mask)
         return torch.sum(loss,dim=1,keepdim=True)
 
+#defined a reparameterize to calcuate mean and std
+def reparameterize(self, mu, logvar):
+    std = torch.exp(0.5*logvar) 
+    eps = torch.randn_like(std)
+    return mu + eps*std
 
 class L1Loss(nn.Module):
     def __init__(self):
@@ -265,6 +270,10 @@ class SIGGRAPHGenerator(nn.Module):
         self.model5 = nn.Sequential(*model5)
         self.model6 = nn.Sequential(*model6)
         self.model7 = nn.Sequential(*model7)
+        #added VAE Layers before encoder
+        self.z_mean = nn.Linear(256, 64)
+        self.z_log_var = nn.Linear(256, 64)
+        #decoding
         self.model8up = nn.Sequential(*model8up)
         self.model8 = nn.Sequential(*model8)
         self.model9up = nn.Sequential(*model9up)
@@ -318,6 +327,7 @@ class FusionGenerator(nn.Module):
         self.output_nc = output_nc
         self.classification = classification
         use_bias = True
+        self.beta = 10
 
         # Conv1
         # model1=[nn.ReflectionPad2d(1),]
@@ -524,7 +534,16 @@ class FusionGenerator(nn.Module):
 
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
         conv3_3 = self.weight_layer3(instance_feature['conv3_3'], conv3_3, box_info_list[2])
+        
+        z_mu = self.z_mean(conv3_3)
+        z_log_var = self.z_log_var(conv3_3)
+        z = self.reparameterize(z_mu, z_log_var)
 
+        # Decoder
+        z_expand = z.view(-1, 64, 1, 1).expand(-1, 64, 16, 16) 
+
+        conv4_3 = self.model4(z_expand) 
+        conv5_3 = self.model5(conv4_3)
         conv4_3 = self.model4(conv3_3[:,:,::2,::2])
         conv4_3 = self.weight_layer4(instance_feature['conv4_3'], conv4_3, box_info_list[3])
 
@@ -554,9 +573,22 @@ class FusionGenerator(nn.Module):
 
         conv10_2 = self.model10(conv10_up)
         conv10_2 = self.weight_layer10_2(instance_feature['conv10_2'], conv10_2, box_info_list[0])
-        
+
+        reconstructed = self.model_out(conv10_2)
         out_reg = self.model_out(conv10_2)
-        return out_reg
+        
+        # newly added
+        kl_div = -0.5 * torch.sum(1 + z_log_var - z_mu.pow(2) - z_log_var.exp())    
+        kl_div *= self.beta
+
+        # Create a dictionary to hold the various outputs including the KL divergence
+        output = {
+            'out_reg': out_reg,  # the original output
+            'kl_div': kl_div  # the KL divergence
+        }
+
+        # Return the dictionary
+        return output
 
 
 class WeightGenerator(nn.Module):
@@ -725,6 +757,8 @@ class InstanceGenerator(nn.Module):
         model7+=[nn.ReLU(True),]
         model7+=[norm_layer(512),]
 
+        self.z_mean = nn.Linear(512, 64) 
+        self.z_log_var = nn.Linear(512, 64)
         # Conv7
         model8up=[nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=use_bias)]
 
@@ -804,12 +838,20 @@ class InstanceGenerator(nn.Module):
         conv1_2 = self.model1(torch.cat((input_A,input_B,mask_B),dim=1))
         conv2_2 = self.model2(conv1_2[:,:,::2,::2])
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
-        conv4_3 = self.model4(conv3_3[:,:,::2,::2])
+
+        z_mu = self.z_mean(conv3_3)
+        z_log_var = self.z_log_var(conv3_3)  
+        z = self.reparameterize(z_mu, z_log_var)
+        
+        # Decoding z
+        z_expand = z.view(-1, 64, 1, 1).expand(-1, 64, 16, 16)  
+        conv4_3 = self.model4(z_expand)
         conv5_3 = self.model5(conv4_3)
         conv6_3 = self.model6(conv5_3)
         conv7_3 = self.model7(conv6_3)
         conv8_up = self.model8up(conv7_3) + self.model3short8(conv3_3)
         conv8_3 = self.model8(conv8_up)
+
 
         if(self.classification):
             out_class = self.model_class(conv8_3)
@@ -827,19 +869,22 @@ class InstanceGenerator(nn.Module):
             conv10_2 = self.model10(conv10_up)
             out_reg = self.model_out(conv10_2)
 
-        feature_map = {}
-        feature_map['conv1_2'] = conv1_2
-        feature_map['conv2_2'] = conv2_2
-        feature_map['conv3_3'] = conv3_3
-        feature_map['conv4_3'] = conv4_3
-        feature_map['conv5_3'] = conv5_3
-        feature_map['conv6_3'] = conv6_3
-        feature_map['conv7_3'] = conv7_3
-        feature_map['conv8_up'] = conv8_up
-        feature_map['conv8_3'] = conv8_3
-        feature_map['conv9_up'] = conv9_up
-        feature_map['conv9_3'] = conv9_3
-        feature_map['conv10_up'] = conv10_up
-        feature_map['conv10_2'] = conv10_2
-        feature_map['out_reg'] = out_reg
+        # KL Divergence term
+        kl_div = -0.5 * torch.sum(1 + z_log_var - z_mu.pow(2) - z_log_var.exp())
+        beta = 10  # Set your desired beta value here
+        kl_div *= beta
+
+        feature_map = {
+            'conv1_2': conv1_2,
+            'conv2_2': conv2_2,
+            'conv3_3': conv3_3,
+            'conv4_3': conv4_3,
+            'conv5_3': conv5_3,
+            'conv6_3': conv6_3,
+            'conv7_3': conv7_3,
+            'conv8_up': conv8_up,
+            'conv8_3': conv8_3,
+            'kl_div': kl_div  # Add KL divergence to the feature map
+        }
+        
         return (out_reg, feature_map)
