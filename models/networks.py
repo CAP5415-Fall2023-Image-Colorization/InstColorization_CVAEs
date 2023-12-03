@@ -322,7 +322,10 @@ class FusionGenerator(nn.Module):
         self.output_nc = output_nc
         self.classification = classification
         use_bias = True
+        
+        #Sindhu - Declare hyperparameter beta in disentangled VAE
         self.beta = 10
+        
 
         # Conv1
         # model1=[nn.ReflectionPad2d(1),]
@@ -536,15 +539,15 @@ class FusionGenerator(nn.Module):
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
         conv3_3 = self.weight_layer3(instance_feature['conv3_3'], conv3_3, box_info_list[2])
 
-        # Sindhu - Encoding layers
+        # Sindhu - Mapping to a latent space
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)
         z = self.reparameterize(z_mu, z_log_var)
 
-        # Decoder
+        # Sindhu - Reconstruction from latent space
         z_expand = z.view(-1, 64, 1, 1).expand(-1, 64, 16, 16) 
-
         conv4_3 = self.model4(z_expand) 
+        
         conv5_3 = self.model5(conv4_3)
         conv4_3 = self.model4(conv3_3[:,:,::2,::2])
         conv4_3 = self.weight_layer4(instance_feature['conv4_3'], conv4_3, box_info_list[3])
@@ -847,14 +850,15 @@ class InstanceGenerator(nn.Module):
         conv2_2 = self.model2(conv1_2[:,:,::2,::2])
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
 
-        # Sindhu - Encoding layers
+        # Sindhu - Mapping to a latent space
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)  
         z = self.reparameterize(z_mu, z_log_var)
         
-        # Sindhu - Decoding z
+        # Sindhu - Reconstruction from latent space 
         z_expand = z.view(-1, 64, 1, 1).expand(-1, 64, 16, 16)  
         conv4_3 = self.model4(z_expand)
+        
         conv5_3 = self.model5(conv4_3)
         conv6_3 = self.model6(conv5_3)
         conv7_3 = self.model7(conv6_3)
