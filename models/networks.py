@@ -95,12 +95,7 @@ class HuberLoss(nn.Module):
         # loss = eucl*mask + self.delta*(mann-.5*self.delta)*(1-mask)
         loss = eucl*mask/self.delta + (mann-.5*self.delta)*(1-mask)
         return torch.sum(loss,dim=1,keepdim=True)
-
-#defined a reparameterize to calcuate mean and std
-def reparameterize(self, mu, logvar):
-    std = torch.exp(0.5*logvar) 
-    eps = torch.randn_like(std)
-    return mu + eps*std
+        
 
 class L1Loss(nn.Module):
     def __init__(self):
@@ -525,6 +520,12 @@ class FusionGenerator(nn.Module):
         self.upsample4 = nn.Sequential(*[nn.Upsample(scale_factor=4, mode='nearest'),])
         self.softmax = nn.Sequential(*[nn.Softmax(dim=1),])
 
+    #defined a reparameterize to calculate mean and std
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar) 
+        eps = torch.randn_like(std)
+        return mu + eps*std
+
     def forward(self, input_A, input_B, mask_B, instance_feature, box_info_list):
         conv1_2 = self.model1(torch.cat((input_A,input_B,mask_B),dim=1))
         conv1_2 = self.weight_layer(instance_feature['conv1_2'], conv1_2, box_info_list[0])
@@ -834,6 +835,12 @@ class InstanceGenerator(nn.Module):
         self.upsample4 = nn.Sequential(*[nn.Upsample(scale_factor=4, mode='nearest'),])
         self.softmax = nn.Sequential(*[nn.Softmax(dim=1),])
 
+    #defined a reparameterize to calculate mean and std
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar) 
+        eps = torch.randn_like(std)
+        return mu + eps*std
+    
     def forward(self, input_A, input_B, mask_B):
         conv1_2 = self.model1(torch.cat((input_A,input_B,mask_B),dim=1))
         conv2_2 = self.model2(conv1_2[:,:,::2,::2])
