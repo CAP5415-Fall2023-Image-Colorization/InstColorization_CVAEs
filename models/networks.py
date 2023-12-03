@@ -520,7 +520,7 @@ class FusionGenerator(nn.Module):
         self.upsample4 = nn.Sequential(*[nn.Upsample(scale_factor=4, mode='nearest'),])
         self.softmax = nn.Sequential(*[nn.Softmax(dim=1),])
 
-    #defined a reparameterize to calculate mean and std
+    # Sindhu - Calculating reparametrization trick
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar) 
         eps = torch.randn_like(std)
@@ -535,7 +535,8 @@ class FusionGenerator(nn.Module):
 
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
         conv3_3 = self.weight_layer3(instance_feature['conv3_3'], conv3_3, box_info_list[2])
-        
+
+        # Sindhu - Encoding layers
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)
         z = self.reparameterize(z_mu, z_log_var)
@@ -578,17 +579,17 @@ class FusionGenerator(nn.Module):
         reconstructed = self.model_out(conv10_2)
         out_reg = self.model_out(conv10_2)
         
-        # newly added
+        # Sindhu - added KL Divergence loss
         kl_div = -0.5 * torch.sum(1 + z_log_var - z_mu.pow(2) - z_log_var.exp())    
         kl_div *= self.beta
 
-        # Create a dictionary to hold the various outputs including the KL divergence
+        # Sindhu - Create a dictionary to hold the various outputs including the KL divergence
         output = {
             'out_reg': out_reg,  # the original output
             'kl_div': kl_div  # the KL divergence
         }
 
-        # Return the dictionary
+        # Sindhu - Return the dictionary
         return output
 
 
@@ -835,7 +836,7 @@ class InstanceGenerator(nn.Module):
         self.upsample4 = nn.Sequential(*[nn.Upsample(scale_factor=4, mode='nearest'),])
         self.softmax = nn.Sequential(*[nn.Softmax(dim=1),])
 
-    #defined a reparameterize to calculate mean and std
+    # Sindhu - Calculating reparametrization trick
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar) 
         eps = torch.randn_like(std)
@@ -846,11 +847,12 @@ class InstanceGenerator(nn.Module):
         conv2_2 = self.model2(conv1_2[:,:,::2,::2])
         conv3_3 = self.model3(conv2_2[:,:,::2,::2])
 
+        # Sindhu - Encoding layers
         z_mu = self.z_mean(conv3_3)
         z_log_var = self.z_log_var(conv3_3)  
         z = self.reparameterize(z_mu, z_log_var)
         
-        # Decoding z
+        # Sindhu - Decoding z
         z_expand = z.view(-1, 64, 1, 1).expand(-1, 64, 16, 16)  
         conv4_3 = self.model4(z_expand)
         conv5_3 = self.model5(conv4_3)
@@ -876,7 +878,7 @@ class InstanceGenerator(nn.Module):
             conv10_2 = self.model10(conv10_up)
             out_reg = self.model_out(conv10_2)
 
-        # KL Divergence term
+        # Sindhu - KL Divergence term
         kl_div = -0.5 * torch.sum(1 + z_log_var - z_mu.pow(2) - z_log_var.exp())
         beta = 10  # Set your desired beta value here
         kl_div *= beta
@@ -891,7 +893,7 @@ class InstanceGenerator(nn.Module):
             'conv7_3': conv7_3,
             'conv8_up': conv8_up,
             'conv8_3': conv8_3,
-            'kl_div': kl_div  # Add KL divergence to the feature map
+            'kl_div': kl_div  # Sindhu - Add KL divergence to the feature map
         }
         
         return (out_reg, feature_map)
