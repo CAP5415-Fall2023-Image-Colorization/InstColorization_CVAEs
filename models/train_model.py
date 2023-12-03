@@ -140,19 +140,19 @@ class TrainModel(BaseModel):
         self.forward()
         self.optimizer_G.zero_grad()
         
-        # Define beta for KL divergence scaling
+        # Sindhu - Define beta for KL divergence scaling
         beta = self.opt.beta  # Make sure this is defined in your options
         
         if self.opt.stage == 'full' or self.opt.stage == 'instance':
             self.loss_L1 = self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
                                             self.real_B.type(torch.cuda.FloatTensor))
-            # Assuming kl_div is calculated and returned in the forward pass for these stages
+            # Sindhu - Assuming kl_div is calculated and returned in the forward pass for these stages
             self.loss_KL = self.kl_div * beta
             self.loss_G = self.loss_L1 + self.loss_KL
         elif self.opt.stage == 'fusion':
             self.loss_L1 = self.criterionL1(self.fake_B_reg.type(torch.cuda.FloatTensor),
                                             self.full_real_B.type(torch.cuda.FloatTensor))
-            # Assuming kl_div is part of the feature_map returned in the forward pass
+            # Sindhu - Assuming kl_div is part of the feature_map returned in the forward pass
             self.loss_KL = feature_map['kl_div'] * beta
             sself.loss_G = self.loss_L1 + self.opt.lambda_kl * self.kl_div
         else:
