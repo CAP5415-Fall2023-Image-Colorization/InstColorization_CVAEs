@@ -26,10 +26,10 @@ class TrainModel(BaseModel):
     def initialize(self, opt):
         BaseModel.initialize(self, opt)
         self.loss_names = ['G', 'L1']
-        # load/define networks
+        # Sindhu - Load/define networks
         self.kl_div = 0
          if not hasattr(opt, 'lambda_kl'):
-        opt.lambda_kl = 1.0  # or whatever default value you choose
+        opt.lambda_kl = 1.0  # Sindhu - or whatever default value you choose
 
         self.opt = opt
         num_in = opt.input_nc + opt.output_nc + 1
